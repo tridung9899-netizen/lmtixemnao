@@ -1,0 +1,236 @@
+// --- THIẾT LẬP CƠ BẢN VÀ CẤU HÌNH ---
+const container = document.getElementById('container');
+const scene = new THREE.Scene();
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0xa0a0a0, 1); 
+renderer.shadowMap.enabled = true; // Bật bóng đổ
+renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+container.appendChild(renderer.domElement);
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; 
+controls.dampingFactor = 0.05;
+
+// --- HẰNG SỐ CẦN THAY ĐỔI ---
+// ⚠️ THAY THẾ BẰNG URL RAW GITHUB CỦA BẠN ⚠️
+const GITHUB_RAW_URL = 'YOUR_GITHUB_RAW_URL_HERE'; 
+
+const CAR_SPEED = 0.3; 
+const INTERSECTION_SIZE = 15; 
+const GREEN_TIME = 8000;  
+const YELLOW_TIME = 2000; 
+
+let trafficState = 0; // 0: EW Green, 1: EW Yellow, 2: NS Green, 3: NS Yellow
+let cycleStartTime = Date.now();
+const loader = new THREE.GLTFLoader();
+let dynamicCarEW, dynamicCarNS; 
+
+// --- ÁNH SÁNG VÀ CAMERA ---
+const ambientLight = new THREE.AmbientLight(0x404040, 2.5); 
+scene.add(ambientLight);
+
+const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+directionalLight.position.set(15, 30, 15);
+directionalLight.target.position.set(0, 0, 0); 
+directionalLight.castShadow = true; 
+directionalLight.shadow.camera.left = -50;
+directionalLight.shadow.camera.right = 50;
+directionalLight.shadow.camera.top = 50;
+directionalLight.shadow.camera.bottom = -50;
+directionalLight.shadow.mapSize.width = 2048; 
+directionalLight.shadow.mapSize.height = 2048;
+scene.add(directionalLight);
+scene.add(directionalLight.target);
+
+camera.position.set(25, 20, 25);
+camera.lookAt(0, 0, 0);
+
+
+// --- HÀM TẢI MÔ HÌNH BỐI CẢNH (Từ GitHub Raw) ---
+
+function loadEnvironment() {
+    loader.load(GITHUB_RAW_URL, (gltf) => {
+        const environmentModel = gltf.scene;
+        environmentModel.scale.set(10, 10, 10); // Cần điều chỉnh nếu mô hình quá to/nhỏ
+        environmentModel.position.y = 0; 
+        
+        // Cấu hình mô hình nhận bóng đổ
+        environmentModel.traverse((node) => {
+            if (node.isMesh) {
+                node.receiveShadow = true; 
+            }
+        });
+        
+        scene.add(environmentModel);
+        console.log("Tải mô hình bối cảnh 3D thành công từ GitHub.");
+
+    }, undefined, (error) => {
+        console.error('Lỗi khi tải file từ GitHub. Kiểm tra URL Raw và LFS:', error);
+        // Hiển thị khối hộp màu tím thay thế nếu tải thất bại
+        const testCube = new THREE.Mesh(new THREE.BoxGeometry(20, 20, 20), new THREE.MeshBasicMaterial({ color: 0xaa00aa }));
+        testCube.position.set(0, 10, 0); 
+        scene.add(testCube);
+    });
+}
+
+
+// --- TẠO ĐỐI TƯỢNG ĐÈN VÀ XE ĐỘNG ---
+
+const RED_MAT = new THREE.MeshBasicMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 0.8 });
+const GREEN_MAT = new THREE.MeshBasicMaterial({ color: 0x00ff00, emissive: 0x00ff00, emissiveIntensity: 0.8 });
+const OFF_MAT = new THREE.MeshBasicMaterial({ color: 0x222222, emissive: 0x000000 });
+const POLE_MAT = new THREE.MeshLambertMaterial({ color: 0x444444 });
+
+function createTrafficLight(x, z, rotationY) {
+    const group = new THREE.Group();
+    // Phần cột và vỏ hộp
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 10, 8), POLE_MAT);
+    pole.position.set(0, 5, 0);
+    pole.castShadow = true;
+    group.add(pole);
+    const casing = new THREE.Mesh(new THREE.BoxGeometry(2, 5, 2), POLE_MAT);
+    casing.position.set(0, 7.5, 0);
+    casing.castShadow = true;
+    group.add(casing);
+
+    // Bóng đèn (chỉ làm Đỏ và Xanh, bỏ qua Vàng cho đơn giản)
+    const redBulb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), RED_MAT);
+    redBulb.position.set(0, 9, 0);
+    group.add(redBulb);
+    const greenBulb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), GREEN_MAT);
+    greenBulb.position.set(0, 6, 0);
+    group.add(greenBulb);
+    
+    group.position.set(x, 0, z);
+    group.rotation.y = rotationY;
+    
+    group.userData.red = redBulb;
+    group.userData.green = greenBulb;
+    scene.add(group);
+    return group;
+}
+
+function createDynamicCar(color, x, z, rotationY) {
+    const geo = new THREE.BoxGeometry(3, 1.5, 1.5);
+    const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.3, metalness: 0.8 }); 
+    const car = new THREE.Mesh(geo, mat);
+    car.position.set(x, 1.5, z); 
+    car.rotation.y = rotationY;
+    car.castShadow = true;
+    scene.add(car);
+    return car;
+}
+
+// Đặt đèn và xe tại ngã tư
+const LIGHT_POS = INTERSECTION_SIZE / 2 + 1;
+const CAR_START_POS = INTERSECTION_SIZE * 5; 
+const LANE_OFFSET = INTERSECTION_SIZE / 4;
+
+const lightNS = createTrafficLight(LIGHT_POS, -LIGHT_POS, 0); 
+const lightEW = createTrafficLight(-LIGHT_POS, LIGHT_POS, Math.PI / 2); 
+const lightSN = createTrafficLight(-LIGHT_POS, LIGHT_POS, Math.PI); 
+const lightWE = createTrafficLight(LIGHT_POS, -LIGHT_POS, -Math.PI / 2); 
+
+dynamicCarEW = createDynamicCar(0x0077ff, -CAR_START_POS, LANE_OFFSET, 0); 
+dynamicCarNS = createDynamicCar(0xff3333, -LANE_OFFSET, -CAR_START_POS, Math.PI / 2); 
+
+
+// --- LOGIC ĐÈN VÀ CHUYỂN ĐỘNG ---
+
+function updateLightBulb(state) {
+    const isEW_Go = state === 0; 
+    const isNS_Go = state === 2; 
+    const isEW_Yellow = state === 1;
+    const isNS_Yellow = state === 3;
+    
+    const setLightState = (lightGroup, isGo, isYellow) => {
+        const redBulb = lightGroup.userData.red;
+        const greenBulb = lightGroup.userData.green;
+
+        if (isYellow) {
+            // Hiển thị cả hai đèn tắt (giữa đỏ và xanh)
+            redBulb.material = OFF_MAT; 
+            greenBulb.material = OFF_MAT; 
+            // Nếu bạn muốn hiển thị đèn vàng, cần thêm bóng đèn vàng vào createTrafficLight
+        } else if (isGo) {
+            redBulb.material = OFF_MAT;
+            greenBulb.material = GREEN_MAT;
+        } else { // Phải dừng (Đèn Đỏ)
+            redBulb.material = RED_MAT;
+            greenBulb.material = OFF_MAT;
+        }
+    };
+    
+    setLightState(lightEW, isEW_Go, isEW_Yellow); 
+    setLightState(lightWE, isEW_Go, isEW_Yellow); 
+    setLightState(lightNS, isNS_Go, isNS_Yellow);
+    setLightState(lightSN, isNS_Go, isNS_Yellow);
+}
+
+function updateCarMovement(state) {
+    const MAX_POS = CAR_START_POS;
+    const MIN_POS = -CAR_START_POS;
+    const STOP_POS = -LANE_OFFSET * 3;
+
+    // Di chuyển xe Đông-Tây (EW)
+    const ewCanGo = state === 0 || state === 1; 
+    if (ewCanGo || dynamicCarEW.position.x > STOP_POS) {
+        dynamicCarEW.position.x += CAR_SPEED;
+    } 
+    if (!ewCanGo && dynamicCarEW.position.x < STOP_POS) {
+        dynamicCarEW.position.x = Math.min(dynamicCarEW.position.x, STOP_POS);
+    }
+    if (dynamicCarEW.position.x > MAX_POS) {
+        dynamicCarEW.position.x = MIN_POS;
+    }
+
+    // Di chuyển xe Bắc-Nam (NS)
+    const nsCanGo = state === 2 || state === 3; 
+    if (nsCanGo || dynamicCarNS.position.z > STOP_POS) {
+        dynamicCarNS.position.z += CAR_SPEED;
+    }
+    if (!nsCanGo && dynamicCarNS.position.z < STOP_POS) {
+        dynamicCarNS.position.z = Math.min(dynamicCarNS.position.z, STOP_POS);
+    }
+    if (dynamicCarNS.position.z > MAX_POS) {
+        dynamicCarNS.position.z = MIN_POS;
+    }
+}
+
+
+// --- VÒNG LẶP CHÍNH (ANIMATE LOOP) ---
+
+loadEnvironment(); 
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    // Cập nhật trạng thái đèn
+    const elapsedTime = Date.now() - cycleStartTime;
+    
+    if (trafficState === 0 && elapsedTime >= GREEN_TIME) {
+        trafficState = 1; cycleStartTime = Date.now(); 
+    } else if (trafficState === 1 && elapsedTime >= YELLOW_TIME) {
+        trafficState = 2; cycleStartTime = Date.now(); 
+    } else if (trafficState === 2 && elapsedTime >= GREEN_TIME) {
+        trafficState = 3; cycleStartTime = Date.now(); 
+    } else if (trafficState === 3 && elapsedTime >= YELLOW_TIME) {
+        trafficState = 0; cycleStartTime = Date.now(); 
+    }
+    
+    updateLightBulb(trafficState); 
+    updateCarMovement(trafficState); 
+
+    controls.update(); 
+    renderer.render(scene, camera);
+}
+
+animate();
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
