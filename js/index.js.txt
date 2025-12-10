@@ -14,8 +14,8 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 
 // --- HẰNG SỐ CẦN THAY ĐỔI ---
-// ⚠️ THAY THẾ BẰNG URL RAW GITHUB CỦA BẠN ⚠️
-const GITHUB_RAW_URL = 'YOUR_GITHUB_RAW_URL_HERE'; 
+// ⚠️ URL RAW GITHUB CỦA FILE .glb BẠN ĐÃ ĐẨY LÊN ⚠️
+const GITHUB_RAW_URL = 'https://raw.githubusercontent.com/tridung9899-netizen/lmtixemnao/master/city_pack_5.glb'; 
 
 const CAR_SPEED = 0.3; 
 const INTERSECTION_SIZE = 15; 
@@ -48,12 +48,13 @@ camera.position.set(25, 20, 25);
 camera.lookAt(0, 0, 0);
 
 
-// --- HÀM TẢI MÔ HÌNH BỐI CẢNH (Từ GitHub Raw) ---
+// --- HÀM TẢI MÔ HÌNH BỐI CẢNH ---
 
 function loadEnvironment() {
     loader.load(GITHUB_RAW_URL, (gltf) => {
         const environmentModel = gltf.scene;
-        environmentModel.scale.set(10, 10, 10); // Cần điều chỉnh nếu mô hình quá to/nhỏ
+        // Tùy chỉnh Scale để khớp với kích thước xe/đèn (Có thể cần điều chỉnh sau)
+        environmentModel.scale.set(10, 10, 10); 
         environmentModel.position.y = 0; 
         
         // Cấu hình mô hình nhận bóng đổ
@@ -67,7 +68,7 @@ function loadEnvironment() {
         console.log("Tải mô hình bối cảnh 3D thành công từ GitHub.");
 
     }, undefined, (error) => {
-        console.error('Lỗi khi tải file từ GitHub. Kiểm tra URL Raw và LFS:', error);
+        console.error('Lỗi khi tải file từ GitHub. Kiểm tra URL Raw:', error);
         // Hiển thị khối hộp màu tím thay thế nếu tải thất bại
         const testCube = new THREE.Mesh(new THREE.BoxGeometry(20, 20, 20), new THREE.MeshBasicMaterial({ color: 0xaa00aa }));
         testCube.position.set(0, 10, 0); 
@@ -95,7 +96,7 @@ function createTrafficLight(x, z, rotationY) {
     casing.castShadow = true;
     group.add(casing);
 
-    // Bóng đèn (chỉ làm Đỏ và Xanh, bỏ qua Vàng cho đơn giản)
+    // Bóng đèn 
     const redBulb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), RED_MAT);
     redBulb.position.set(0, 9, 0);
     group.add(redBulb);
@@ -150,10 +151,8 @@ function updateLightBulb(state) {
         const greenBulb = lightGroup.userData.green;
 
         if (isYellow) {
-            // Hiển thị cả hai đèn tắt (giữa đỏ và xanh)
             redBulb.material = OFF_MAT; 
             greenBulb.material = OFF_MAT; 
-            // Nếu bạn muốn hiển thị đèn vàng, cần thêm bóng đèn vàng vào createTrafficLight
         } else if (isGo) {
             redBulb.material = OFF_MAT;
             greenBulb.material = GREEN_MAT;
